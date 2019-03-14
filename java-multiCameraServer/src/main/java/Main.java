@@ -1,0 +1,1286 @@
+/*----------------------------------------------------------------------------*/
+/* Copyright (c) 2018 FIRST. All Rights Reserved.                             */
+/* Open Source Software - may be modified and shared by FRC teams. The code   */
+/* must be accompanied by the FIRST BSD license file in the root directory of */
+/* the project.                                                               */
+/*----------------------------------------------------------------------------*/
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
+import java.lang.System;
+
+//java array and list utilities
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+
+import edu.wpi.cscore.MjpegServer;
+import edu.wpi.cscore.UsbCamera;
+import edu.wpi.cscore.VideoSource;
+import edu.wpi.first.cameraserver.CameraServer;
+import edu.wpi.first.networktables.NetworkTableInstance;
+import edu.wpi.first.vision.VisionPipeline;
+import edu.wpi.first.vision.VisionThread;
+
+
+import org.opencv.core.Mat;
+
+
+//useless comment
+
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.HashMap;
+
+//import edu.wpi.first.wpilibj.vision.VisionPipeline;
+
+import org.opencv.core.*;
+import org.opencv.core.Core.*;
+import org.opencv.features2d.FeatureDetector;
+import org.opencv.imgcodecs.Imgcodecs;
+import org.opencv.imgproc.*;
+import org.opencv.objdetect.*;
+
+
+import org.opencv.core.CvType;
+import org.opencv.core.Mat;
+import org.opencv.core.MatOfPoint;
+import org.opencv.core.MatOfPoint2f;
+import org.opencv.core.Point;
+import org.opencv.core.Scalar;
+import org.opencv.core.Size;
+import org.opencv.highgui.HighGui;
+import org.opencv.imgcodecs.Imgcodecs;
+import org.opencv.imgproc.Imgproc;
+
+
+import java.io.IOException;
+import java.util.Arrays;
+
+import com.pi4j.io.i2c.I2CBus;
+import com.pi4j.io.i2c.I2CDevice;
+import com.pi4j.io.i2c.I2CFactory;
+import com.pi4j.io.i2c.I2CFactory.UnsupportedBusNumberException;
+import com.pi4j.platform.PlatformAlreadyAssignedException;
+import com.pi4j.system.SystemInfo.BoardType;
+import com.pi4j.util.Console;
+import com.pi4j.wiringpi.Gpio;
+//import com.sun.tools.javap.TryBlockWriter;
+import com.pi4j.io.gpio.GpioController;
+import com.pi4j.io.gpio.GpioFactory;
+import com.pi4j.io.gpio.GpioPin;
+import com.pi4j.io.gpio.GpioPinDigitalOutput;
+import com.pi4j.io.gpio.PinState;
+import com.pi4j.io.gpio.RaspiPin;
+import com.pi4j.io.gpio.exception.UnsupportedBoardType;
+//Serial Communication
+import com.pi4j.io.serial.*;
+import com.pi4j.util.CommandArgumentParser;
+import com.pi4j.util.Console;
+
+import java.io.IOException;
+import java.util.Date;
+
+import org.opencv.core.*;
+
+import java.io.File;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import org.opencv.core.MatOfPoint;
+import org.opencv.core.MatOfPoint2f;
+import org.opencv.core.Point;
+import org.opencv.core.Rect;
+import org.opencv.core.RotatedRect;
+import org.opencv.imgcodecs.Imgcodecs;
+import org.opencv.imgproc.Imgproc;
+import org.opencv.objdetect.CascadeClassifier;
+
+/*
+   JSON format:
+   {
+       "team": <team number>,
+       "ntmode": <"client" or "server", "client" if unspecified>
+       "cameras": [
+           {
+               "name": <camera name>
+               "path": <path, e.g. "/dev/video0">
+               "pixel format": <"MJPEG", "YUYV", etc>   // optional
+               "width": <video mode width>              // optional
+               "height": <video mode height>            // optional
+               "fps": <video mode fps>                  // optional
+               "brightness": <percentage brightness>    // optional
+               "white balance": <"auto", "hold", value> // optional
+               "exposure": <"auto", "hold", value>      // optional
+               "properties": [                          // optional
+                   {
+                       "name": <property name>
+                       "value": <property value>
+                   }
+               ],
+               "stream": {                              // optional
+                   "properties": [
+                       {
+                           "name": <stream property name>
+                           "value": <stream property value>
+                       }
+                   ]
+               }
+           }
+       ]
+   }
+
+*/
+
+
+public class Main {  //replace final
+
+private static String configFile = "/boot/frc.json";
+
+  @SuppressWarnings("MemberName")
+  public static class CameraConfig {
+    public String name;
+    public String path;
+    public JsonObject config;
+    public JsonElement streamConfig;
+  }
+
+  public static int team;
+  public static boolean server;
+  public static List<CameraConfig> cameraConfigs = new ArrayList<>();
+
+  public static double centerX = 0.0;
+
+  
+
+  private Main() {
+  }
+
+  /**
+   * Report parse error.
+   */
+  public static void parseError(String str) {
+    System.err.println("config error in '" + configFile + "': " + str);
+  }
+
+
+
+
+  /**
+   * Read single camera configuration.
+   */
+  public static boolean readCameraConfig(JsonObject config) {
+    CameraConfig cam = new CameraConfig();
+
+    // name
+    JsonElement nameElement = config.get("name");
+    if (nameElement == null) {
+      parseError("could not read camera name");
+      return false;
+    }
+    cam.name = nameElement.getAsString();
+
+    // path
+    JsonElement pathElement = config.get("path");
+    if (pathElement == null) {
+      parseError("camera '" + cam.name + "': could not read path");
+      return false;
+    }
+    cam.path = pathElement.getAsString();
+
+    // stream properties
+    cam.streamConfig = config.get("stream");
+
+    cam.config = config;
+
+    cameraConfigs.add(cam);
+    return true;
+  }
+
+  /**
+   * Read configuration file.
+   */
+  @SuppressWarnings("PMD.CyclomaticComplexity")
+  public static boolean readConfig() {
+    // parse file
+    JsonElement top;
+    try {
+      top = new JsonParser().parse(Files.newBufferedReader(Paths.get(configFile)));
+    } catch (IOException ex) {
+      System.err.println("could not open '" + configFile + "': " + ex);
+      return false;
+    }
+
+    // top level must be an object
+    if (!top.isJsonObject()) {
+      parseError("must be JSON object");
+      return false;
+    }
+    JsonObject obj = top.getAsJsonObject();
+
+    // team number
+    JsonElement teamElement = obj.get("team");
+    if (teamElement == null) {
+      parseError("could not read team number");
+      return false;
+    }
+    team = teamElement.getAsInt();
+
+    // ntmode (optional)
+    if (obj.has("ntmode")) {
+      String str = obj.get("ntmode").getAsString();
+      if ("client".equalsIgnoreCase(str)) {
+        server = false;
+      } else if ("server".equalsIgnoreCase(str)) {
+        server = true;
+      } else {
+        parseError("could not understand ntmode value '" + str + "'");
+      }
+    }
+
+    // cameras
+    JsonElement camerasElement = obj.get("cameras");
+    if (camerasElement == null) {
+      parseError("could not read cameras");
+      return false;
+    }
+    JsonArray cameras = camerasElement.getAsJsonArray();
+    for (JsonElement camera : cameras) {
+      if (!readCameraConfig(camera.getAsJsonObject())) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Start running the camera.
+   */
+  public static VideoSource startCamera(CameraConfig config) {
+    System.out.println("Starting camera '" + config.name + "' on " + config.path);
+    System.out.println("Our Pipeline");
+    CameraServer inst = CameraServer.getInstance();
+    UsbCamera camera = new UsbCamera(config.name, config.path);
+    MjpegServer server = inst.startAutomaticCapture(camera);
+
+    Gson gson = new GsonBuilder().create();
+
+    camera.setConfigJson(gson.toJson(config.config));
+    camera.setConnectionStrategy(VideoSource.ConnectionStrategy.kKeepOpen);
+
+    if (config.streamConfig != null) {
+      server.setConfigJson(gson.toJson(config.streamConfig));
+    }
+
+    return camera;
+  }
+
+  /**
+   * Example pipeline.
+   */
+  public static class MyPipeline implements VisionPipeline {
+    public int val;
+
+    @Override
+    public void process(Mat mat) {
+      val += 1;
+
+      System.out.println("pipeline");
+    }
+
+    
+
+    public static void uartCommunication() {
+
+        /***************************UART Pins*****************************/
+        //Pi's UART pins -  TX: pin #8   -  RX: pin #10
+        //RoboRIO's UART pins  -  TX: pin #14  -  RX: pin #10
+        /*****************************************************************/
+    
+        System.out.println("uart");
+
+        String uartMessage = "Hello World";
+    
+        final Console console = new Console();
+    
+          // print program title/header
+          //console.title("<-- The Pi4J Project -->", "Serial Communication Example");
+    
+          // allow for user to exit program using CTRL-C
+          //console.promptForExit();
+    
+          // create an instance of the serial communications class
+          final Serial serial = SerialFactory.createInstance();
+    
+          // create and register the serial data listener
+          serial.addListener(new SerialDataEventListener() {
+              @Override
+              public void dataReceived(SerialDataEvent event) {
+    
+                  // NOTE! - It is extremely important to read the data received from the
+                  // serial port.  If it does not get read from the receive buffer, the
+                  // buffer will continue to grow and consume memory.
+    
+                  // print out the data received to the console
+                 /*
+                  try {
+                      console.println("[HEX DATA]   " + event.getHexByteString());
+                      console.println("[ASCII DATA] " + event.getAsciiString());
+                  } catch (IOException e) {
+                      e.printStackTrace();
+                  }*/
+              }
+          });
+    
+          try {
+              // create serial config object
+              SerialConfig config = new SerialConfig();
+             
+    
+              // set default serial settings (device, baud rate, flow control, etc)
+              //
+              // by default, use the DEFAULT com port on the Raspberry Pi (exposed on GPIO header)
+              // NOTE: this utility method will determine the default serial port for the
+              //       detected platform and board/model.  For all Raspberry Pi models
+              //       except the 3B, it will return "/dev/ttyAMA0".  For Raspberry Pi
+              //       model 3B may return "/dev/ttyS0" or "/dev/ttyAMA0" depending on
+              //       environment configuration. /dev/ttyS0
+              //      getDefaultPort(BoardType.RaspberryPi_3B)
+    
+    
+              try {
+                config.device(SerialPort.getDefaultPort(BoardType.RaspberryPi_B_Rev2))
+                .baud(Baud._38400)
+                .dataBits(DataBits._8)
+                .parity(Parity.NONE)
+                .stopBits(StopBits._1)
+                .flowControl(FlowControl.NONE);
+                
+              } /*catch (IOException ex) {
+                ex.printStackTrace();
+              }catch (InterruptedException ex) {
+                ex.printStackTrace();
+              }*/catch (UnsupportedBoardType ex) {
+                ex.printStackTrace();
+              }
+    
+    
+    
+                    config = CommandArgumentParser.getSerialConfig(config);
+              
+              /*parse optional command argument options to override the default serial settings.
+              if(args.length > 0){
+                  config = CommandArgumentParser.getSerialConfig(config, args);
+              }
+              */
+    
+              
+              // display connection details
+              /*
+              console.box(" Connecting to: " + config.toString(),
+                      " We are sending ASCII data on the serial port every 1 second.",
+                      " Data received on serial port will be displayed below.");
+    
+              */
+    
+              // open the default serial device/port with the configuration settings
+              serial.open(config);
+    
+             //System.out.println("--------- Opened serial port ----------");
+    
+             // serial.write("Testing Serial Ouput");
+    
+             // continuous loop to keep the program running until the user terminates the program
+          
+                  try {
+    
+    
+    
+                      serial.writeln(uartMessage);
+    
+                  }
+                  catch(IllegalStateException ex){
+                      ex.printStackTrace();
+                  }
+    
+              
+              
+    
+          }
+          catch(IOException ex) {
+              console.println(" ==>> SERIAL SETUP FAILED test: " + ex.getMessage());
+              return;
+          }
+    
+    }
+
+
+
+
+
+
+
+ }//end of MyPipeLine
+
+
+/**
+* GripPipeGreen class.
+*
+* <p>An OpenCV pipeline generated by GRIP.
+*
+* @author GRIP
+*/
+
+
+
+/**
+ * ExamplePipeline class.
+ *
+ * <p>An OpenCV pipeline generated by GRIP.
+ *
+ * @author GRIP
+ */
+public static class CVVisionPipeline implements VisionPipeline{
+
+    //Outputs
+    private Mat hsvThresholdOutput = new Mat();
+    private ArrayList<MatOfPoint> findContoursOutput = new ArrayList<MatOfPoint>();
+    private ArrayList<MatOfPoint> filterContoursOutput = new ArrayList<MatOfPoint>();
+    private ArrayList<Contour> finalContoursOutput = new ArrayList<Contour>();
+    private static double pixelOffset;
+
+    static {
+        System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
+    }
+
+    /**
+     * This is the primary method that runs the entire pipeline and updates the outputs.
+     */
+    public void process(Mat source0) {
+       
+        System.out.println("Bacon pipeline");
+        // Step HSV_Threshold0:
+        Mat hsvThresholdInput = source0;
+        double[] hsvThresholdHue = {60, 110.0};
+        double[] hsvThresholdSaturation = {150.0, 255.0};
+        double[] hsvThresholdValue = {50.0, 255.0};
+        hsvThreshold(hsvThresholdInput, hsvThresholdHue, hsvThresholdSaturation, hsvThresholdValue, hsvThresholdOutput);
+
+        // Step Find_Contours0:
+        Mat findContoursInput = hsvThresholdOutput;
+        boolean findContoursExternalOnly = false;
+        findContours(findContoursInput, findContoursExternalOnly, findContoursOutput);
+
+        // Step Filter_Contours0:
+        ArrayList<MatOfPoint> filterContoursContours = findContoursOutput;
+        double filterContoursMinArea = 100;
+        double filterContoursMinPerimeter = 0.0;
+        double filterContoursMinWidth = 0.0;
+        double filterContoursMaxWidth = 1000.0;
+        double filterContoursMinHeight = 0.0;
+        double filterContoursMaxHeight = 1000.0;
+        double[] filterContoursSolidity = {0, 100};
+        double filterContoursMaxVertices = 1000000.0;
+        double filterContoursMinVertices = 0.0;
+        double filterContoursMinRatio = 0.0;
+        double filterContoursMaxRatio = 1000.0;
+        filterContours(filterContoursContours, filterContoursMinArea, filterContoursMinPerimeter, filterContoursMinWidth, filterContoursMaxWidth, filterContoursMinHeight, filterContoursMaxHeight, filterContoursSolidity, filterContoursMaxVertices, filterContoursMinVertices, filterContoursMinRatio, filterContoursMaxRatio, filterContoursOutput);
+        finalContoursOutput = identifyContours(filterContoursOutput);
+        pixelOffset = getCenterOffset(finalContoursOutput, 213); //426
+    }
+
+    /**
+     * This method is a generated getter for the output of a HSV_Threshold.
+     * @return Mat output from HSV_Threshold.
+     */
+    public Mat hsvThresholdOutput() {
+        return hsvThresholdOutput;
+    }
+
+    /**
+     * This method is a generated getter for the output of a Find_Contours.
+     * @return ArrayList<MatOfPoint> output from Find_Contours.
+     */
+    public ArrayList<MatOfPoint> findContoursOutput() {
+        return findContoursOutput;
+    }
+
+    /**
+     * This method is a generated getter for the output of a Filter_Contours.
+     * @return ArrayList<MatOfPoint> output from Filter_Contours.
+     */
+    public ArrayList<MatOfPoint> filterContoursOutput() {
+        return filterContoursOutput;
+    }
+
+
+    /**
+     * Segment an image based on hue, saturation, and value ranges.
+     *
+     * @param input The image on which to perform the HSL threshold.
+     * @param hue The min and max hue
+     * @param sat The min and max saturation
+     * @param val The min and max value
+     * @param out The image in which to store the output.
+     */
+    private void hsvThreshold(Mat input, double[] hue, double[] sat, double[] val,
+                              Mat out) {
+        Imgproc.cvtColor(input, out, Imgproc.COLOR_BGR2HSV);
+        Core.inRange(out, new Scalar(hue[0], sat[0], val[0]),
+                new Scalar(hue[1], sat[1], val[1]), out);
+    }
+
+    /**
+     * Sets the values of pixels in a binary image to their distance to the nearest black pixel.
+     * @param input The image on which to perform the Distance Transform.
+     * @param externalOnly The Transform.
+     */
+    private void findContours(Mat input, boolean externalOnly,
+                              List<MatOfPoint> contours) {
+        Mat hierarchy = new Mat();
+        contours.clear();
+        int mode;
+        if (externalOnly) {
+            mode = Imgproc.RETR_EXTERNAL;
+        }
+        else {
+            mode = Imgproc.RETR_LIST;
+        }
+        int method = Imgproc.CHAIN_APPROX_SIMPLE;
+        Imgproc.findContours(input, contours, hierarchy, mode, method);
+    }
+
+
+    /**
+     * Filters out contours that do not meet certain criteria.
+     * @param inputContours is the input list of contours
+     * @param output is the the output list of contours
+     * @param minArea is the minimum area of a contour that will be kept
+     * @param minPerimeter is the minimum perimeter of a contour that will be kept
+     * @param minWidth minimum width of a contour
+     * @param maxWidth maximum width
+     * @param minHeight minimum height
+     * @param maxHeight maximimum height
+     * @param minVertexCount minimum vertex Count of the contours
+     * @param maxVertexCount maximum vertex Count
+     * @param minRatio minimum ratio of width to height
+     * @param maxRatio maximum ratio of width to height
+     */
+    private void filterContours(List<MatOfPoint> inputContours, double minArea,
+                                double minPerimeter, double minWidth, double maxWidth, double minHeight, double
+                                        maxHeight, double[] solidity, double maxVertexCount, double minVertexCount, double
+                                        minRatio, double maxRatio, List<MatOfPoint> output) {
+        final MatOfInt hull = new MatOfInt();
+        output.clear();
+        //operation
+        for (int i = 0; i < inputContours.size(); i++) {
+            final MatOfPoint contour = inputContours.get(i);
+            final Rect bb = Imgproc.boundingRect(contour);
+            if (bb.width < minWidth || bb.width > maxWidth) continue;
+            if (bb.height < minHeight || bb.height > maxHeight) continue;
+            final double area = Imgproc.contourArea(contour);
+            if (area < minArea) continue;
+            if (Imgproc.arcLength(new MatOfPoint2f(contour.toArray()), true) < minPerimeter) continue;
+            Imgproc.convexHull(contour, hull);
+            MatOfPoint mopHull = new MatOfPoint();
+            mopHull.create((int) hull.size().height, 1, CvType.CV_32SC2);
+            for (int j = 0; j < hull.size().height; j++) {
+                int index = (int)hull.get(j, 0)[0];
+                double[] point = new double[] { contour.get(index, 0)[0], contour.get(index, 0)[1]};
+                mopHull.put(j, 0, point);
+            }
+            final double solid = 100 * area / Imgproc.contourArea(mopHull);
+            if (solid < solidity[0] || solid > solidity[1]) continue;
+            if (contour.rows() < minVertexCount || contour.rows() > maxVertexCount)	continue;
+            final double ratio = bb.width / (double)bb.height;
+            if (ratio < minRatio || ratio > maxRatio) continue;
+            output.add(contour);
+        }
+    }
+
+    private ArrayList<Contour> identifyContours(List<MatOfPoint> inputContours){
+        RotatedRect temp;
+        ArrayList<Contour> goodContours = new ArrayList<>();
+        for (MatOfPoint m : inputContours) {
+            Contour c = new Contour(m);
+            if (c.getArea() > 250) {
+                boolean tall;
+                temp = c.rotatedRect;
+                double ratio = temp.size.height / temp.size.width;
+                if(ratio < 1) {
+                    ratio = 1 / ratio;
+                    tall = false;
+                } else tall = true;
+                if(ratio > 1.5){
+                    if(tall && Math.abs(Math.abs(temp.angle) - 14.5) < 22.5){
+                        goodContours.add(c);
+                    } else if(!tall && Math.abs(Math.abs(temp.angle) - 75.5) < 22.5){
+                        goodContours.add(c);
+                    }
+                }
+            }
+        }
+
+        goodContours.sort((o1, o2) -> (int)(o2.getArea() - o1.getArea()));
+        ArrayList<Contour> finalContours = new ArrayList<>();
+
+        if(goodContours.size() > 2){
+            // Filter for a pair of targets with angles of rotation roughly matching the goal
+            RotatedRect rr1 = goodContours.get(0).rotatedRect;
+            double targetAngle = rr1.size.height > rr1.size.width ? 75.5 : 14.5;
+            RotatedRect current;
+            int out = 0;
+            for(int i = 1; i < goodContours.size(); i++){
+                current = goodContours.get(i).rotatedRect;
+                if(Math.abs(Math.abs(current.angle) - targetAngle) < 22.5){
+                    if(rr1.size.height > rr1.size.width && current.center.x < rr1.center.x){
+                        out = i;
+                        //System.out.println("Found tall");
+                        break;
+                    } else if(rr1.size.height < rr1.size.width && current.center.x > rr1.center.x){
+                        out = i;
+                        //System.out.println("Found short");
+                        break;
+                    }
+                }
+            }
+            finalContours.add(goodContours.get(0));
+            finalContours.add(goodContours.get(out));
+        } else if(goodContours.size() == 2){
+            // If there is only two targets, assume they're the correct two targets. jk dont
+            RotatedRect rr1 = goodContours.get(0).rotatedRect;
+            RotatedRect current = goodContours.get(1).rotatedRect;
+
+            if(rr1.size.height > rr1.size.width && current.center.x < rr1.center.x){
+                finalContours = goodContours;
+            } else if(rr1.size.height < rr1.size.width && current.center.x > rr1.center.x){
+                finalContours = goodContours;
+            }
+        } else {
+            //Log.e("Less than 2 potential vision targets seen");
+        }
+
+        if(finalContours.size() == 2){
+            return finalContours;
+        }
+        return null;
+    }
+
+    private double getCenterOffset(ArrayList<Contour> contours, int center){
+        if(contours.size() == 2){
+            Contour c1 = contours.get(0);
+            Contour c2 = contours.get(1);
+
+            if (c1.coords.x > c2.coords.x) {
+                c1 = contours.get(1);
+                c2 = contours.get(0);
+            }
+
+            Rectangle r1 = c1.getBoundingBox();
+            Rectangle r2 = c2.getBoundingBox();
+            RotatedRectPoints rr1 = new RotatedRectPoints(c1.rotatedRect);
+            RotatedRectPoints rr2 = new RotatedRectPoints(c2.rotatedRect);
+
+            double avg = (rr1.inst.center.x + rr2.inst.center.x)/2;
+            return center - avg;
+        }
+        return 0;
+    }
+
+    private class RotatedRectPoints{
+        public RotatedRect inst;
+        public boolean isTall;
+        public Point[] points = new Point[4], corners = new Point[4];
+
+        //0 is centermost point, then highest point, etc
+        public RotatedRectPoints(RotatedRect rect) {
+            this.inst = rect;
+            isTall = (inst.size.height > inst.size.width);
+            inst.points(points);
+            if (isTall) {
+                corners[0] = points[1];
+                corners[1] = points[2];
+                corners[2] = points[3];
+                corners[3] = points[0];
+            } else {
+                corners[0] = points[3];
+                corners[1] = points[2];
+                corners[2] = points[1];
+                corners[3] = points[0];
+            }
+        }
+
+        public Point getCorner(int corner) {
+            return corners[corner];
+        }
+    }
+
+
+
+    private class Rectangle {
+        public final int x;
+        public final int y;
+        public final int width;
+        public final int height;
+
+        public Rectangle(int x, int y, int width, int height) {
+            this.x = x;
+            this.y = y;
+            this.width = width;
+            this.height = height;
+        }
+
+        public Rectangle(double x, double y, double width, double height) {
+            this.x = round(x);
+            this.y = round(y);
+            this.width = round(width);
+            this.height = round(height);
+        }
+
+        public int round(double d) {
+            return (int)Math.round(d);
+        }
+
+        public Rect toRect() {
+            return new Rect(this.x, this.y, this.width, this.height);
+        }
+    }
+
+    private abstract class BCNScalar {
+        private int v1;
+        private int v2;
+        private int v3;
+
+        protected BCNScalar(int v1, int v2, int v3) {
+            this.v1 = v1;
+            this.v2 = v2;
+            this.v3 = v3;
+        }
+
+        public Scalar toScalar() {
+            return new Scalar((double)this.v1, (double)this.v2, (double)this.v3);
+        }
+    }
+
+    public class Color extends BCNScalar {
+        public final Color BLACK = new Color(0, 0, 0);
+        public final Color WHITE = new Color(255, 255, 255);
+        public final Color RED = new Color(255, 0, 0);
+        public final Color GREEN = new Color(0, 255, 0);
+        public final Color BLUE = new Color(0, 0, 255);
+        public final Color PURPLE = new Color(128, 0, 255);
+        public final Color ORANGE = new Color(255, 128, 0);
+        public final Color TEAL = new Color(0, 255, 255);
+        public final Color YELLOW = new Color(255, 255, 0);
+        private int red;
+        private int green;
+        private int blue;
+
+        public Color(int r, int g, int b) {
+            super(b, g, r);
+            this.red = r;
+            this.green = g;
+            this.blue = b;
+        }
+
+        public int getRed() {
+            return this.red;
+        }
+
+        public int getGreen() {
+            return this.green;
+        }
+
+        public int getBlue() {
+            return this.blue;
+        }
+    }
+
+    private class Image {
+        protected Mat m;
+
+        public Image() {
+            this.m = new Mat();
+        }
+
+        public Image(Mat m) {
+            this.m = m;
+        }
+
+        public double getWidth() {
+            return (double)this.m.width();
+        }
+
+        public double getHeight() {
+            return (double)this.m.height();
+        }
+
+        public List<Contour> getContours() {
+            List<Contour> result = new ArrayList();
+            List<MatOfPoint> contours = new ArrayList();
+            Image copy = this.copy();// used to have com.explodingbacon.bcnlib.vision. before Image
+            Imgproc.findContours(copy.getMat(), contours, new Mat(), 0, 2);
+            Iterator var4 = contours.iterator();
+
+            while(var4.hasNext()) {
+                MatOfPoint mop = (MatOfPoint)var4.next();
+                result.add(new Contour(mop));
+            }
+
+            copy.release();
+            return result;
+        }
+
+        public List<Rectangle> getFaces() {//used to have com.explodingbacon.bcnlib.vision. before Rectangle
+            CascadeClassifier faceDetector = new CascadeClassifier(this.getClass().getResource("/lbpcascade_frontalface.xml").getPath());
+            MatOfRect faceDetections = new MatOfRect();
+            faceDetector.detectMultiScale(this.m, faceDetections);
+            List<Rectangle> faces = new ArrayList();//used to have com.explodingbacon.bcnlib.vision. before Rectangle
+            Rect[] var4 = faceDetections.toArray();
+            int var5 = var4.length;
+
+            for(int var6 = 0; var6 < var5; ++var6) {
+                Rect r = var4[var6];
+                faces.add(new Rectangle(r.x, r.y, r.width, r.height));// used to have com.explodingbacon.bcnlib.vision. before Rectangle
+            }
+
+            return faces;
+        }
+
+        public Image inRange(BCNScalar low, BCNScalar high) {
+            Core.inRange(this.m, low.toScalar(), high.toScalar(), this.m);
+            return this;
+        }
+
+        public void toHSV() {
+            Imgproc.cvtColor(this.m, this.m, 40);
+        }
+
+        public Image copy() { // used to have com.explodingbacon.bcnlib.vision. before Image
+            Image i = new Image();// used to have com.explodingbacon.bcnlib.vision. before Image and used to have com.explodingbacon.bcnlib.vision. before other Image
+            this.m.copyTo(i.getMat());
+            return i;
+        }
+
+        public void drawLine(int x, int y, int height, Color c) {
+            this.drawRectangle(x, y, x, y + height, c);
+        }
+
+        public void drawLine(int x, int height, Color c) {
+            this.drawLine(x, 0, height, c);
+        }
+
+        public void drawLine(int x, Color c) {
+            this.drawLine(x, 479, c);
+        }
+
+        public void drawRectangle(Rectangle r, Color c) {//used to have com.explodingbacon.bcnlib.vision. before Rectangle
+            this.drawRectangle(r.x, r.y, r.x + r.width, r.y + r.height, c);
+        }
+
+        public void drawRectangle(int x, int y, int x2, int y2, Color c) {
+            Imgproc.rectangle(this.m, new Point((double)x, (double)y), new Point((double)x2, (double)y2), c.toScalar());
+        }
+
+        public void drawCircle(int x, int y, int radius, Color c) {
+            Imgproc.circle(this.m, new Point((double)x, (double)y), radius, c.toScalar());
+        }
+
+        public void drawContours(List<Contour> con, Color c) {
+            //Imgproc.drawContours(this.m, Contour.toMatOfPoint(con), -1, c.toScalar());
+        }
+
+        public void drawArrow(double x, double y, double x2, double y2, Color c) {
+            Imgproc.arrowedLine(this.m, new Point(x, y), new Point(x2, y2), c.toScalar());
+        }
+
+        public void drawText(String text, int x, int y, double scale, Color color) {
+            int fontFace = 0;
+            Imgproc.putText(this.m, text, new Point((double)x, (double)y), fontFace, scale, color.toScalar());
+        }
+
+        public double compareTo(Image i) {//used to have com.explodingbacon.bcnlib.vision. Image
+            return Imgproc.matchShapes(this.m, i.getMat(), 1, 0.0D);
+        }
+
+        public Image resize(int width, int height) {//used to have com.explodingbacon.bcnlib.vision. before Image
+            Image resize = new Image();//used to have com.explodingbacon.bcnlib.vision. before Image and com.explodingbacon.bcnlib.vision. before the other Image
+            Size sz = new Size((double)width, (double)height);
+            Imgproc.resize(this.m, resize.getMat(), sz);
+            return resize;
+        }
+
+        public byte[] toBytes() {
+            return new byte[this.m.rows() * this.m.cols() * this.m.channels()];
+        }
+
+        public void saveAs(String fileName) {
+            File f = new File(fileName);
+            if (f.exists()) {
+                f.delete();
+            }
+
+            Imgcodecs.imwrite(fileName, this.m);
+        }
+
+        public void release() {
+            this.m.release();
+        }
+
+        public Mat getMat() {
+            return this.m;
+        }
+
+        public void setMat(Mat newMat) {
+            this.m = newMat;
+        }
+
+        public Image fromFile(String fileName) {
+            return new Image(Imgcodecs.imread(fileName));
+        }
+    }
+
+    public class Contour extends Image {
+        public Point coords = null;
+        public MatOfPoint mop = null;
+        public MatOfPoint2f mop2f = null;
+        protected Rectangle rect;
+        public RotatedRect rotatedRect;
+
+        public Contour(MatOfPoint mop) {
+            super(mop);
+            this.mop = mop;
+            this.init();
+        }
+
+        public Contour(MatOfPoint2f mop2f) {
+            super(mop2f);
+            this.mop = (MatOfPoint)this.getMat();
+            this.mop2f = mop2f;
+            this.init();
+        }
+
+        public MatOfPoint toMOP(MatOfPoint2f mop2f) {
+            MatOfPoint mop = new MatOfPoint();
+            mop2f.convertTo(mop, 4);
+            return mop;
+        }
+
+        public MatOfPoint2f toMOP2f(MatOfPoint mop) {
+            MatOfPoint2f mop2f = new MatOfPoint2f();
+            mop.convertTo(mop2f, CvType.CV_32FC2);
+            return mop2f;
+        }
+
+        private void init() {
+            this.rotatedRect = Imgproc.minAreaRect(this.getMatOfPoint2f());
+            Rect r = this.rotatedRect.boundingRect();
+            Point tl = r.tl();
+            Point br = r.br();
+            this.coords = tl;
+            this.rect = new Rectangle(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
+        }
+
+        public double getArea() {
+            return (double)(this.rect.width * this.rect.height);
+        }
+
+        public Rectangle getBoundingBox() {
+            return this.rect;
+        }
+
+        public double getX() {
+            return this.coords.x;
+        }
+
+        public double getY() {
+            return this.coords.y;
+        }
+
+        public double getWidth() {
+            return (double)this.rect.width;
+        }
+
+        public double getHeight() {
+            return (double)this.rect.height;
+        }
+
+        public double getMiddleX() {
+            return this.getX() + this.getWidth() / 2.0D;
+        }
+
+        public double getMiddleY() {
+            return this.getY() + this.getHeight() / 2.0D;
+        }
+
+        public boolean isConvex() {
+            return Imgproc.isContourConvex(this.getMatOfPoint());
+        }
+
+        public MatOfPoint getMatOfPoint() {
+            if (this.mop == null) {
+                this.mop = toMOP(this.mop2f);
+            }
+
+            return this.mop;
+        }
+
+        public MatOfPoint2f getMatOfPoint2f() {
+            if (this.mop2f == null) {
+                this.mop2f = toMOP2f(this.mop);
+            }
+
+            return this.mop2f;
+        }
+
+        public Contour approxEdges(double precision) {
+            double epsilon = precision * Imgproc.arcLength(this.getMatOfPoint2f(), true);
+            MatOfPoint2f r = new MatOfPoint2f();
+            Imgproc.approxPolyDP(this.getMatOfPoint2f(), r, epsilon, true);
+            return new Contour(r);
+        }
+
+        public List<MatOfPoint> toMatOfPoint(List<Contour> cons) {
+            List<MatOfPoint> mops = new ArrayList();
+            Iterator var2 = cons.iterator();
+
+            while(var2.hasNext()) {
+                Contour c = (Contour)var2.next();
+                mops.add((MatOfPoint)c.getMat());
+            }
+
+            return mops;
+        }
+    }
+
+    public static void uartCommunication() {
+
+      /***************************UART Pins*****************************/
+      //Pi's UART pins -  TX: pin #8   -  RX: pin #10
+      //RoboRIO's UART pins  -  TX: pin #14  -  RX: pin #10
+      /*****************************************************************/
+  
+      String uartMessage = "Hello World";
+      String uartMessage2 = "Hello Bacon";
+  
+      final Console console = new Console();
+  
+        System.out.println("UART Running");
+
+        // print program title/header
+        //console.title("<-- The Pi4J Project -->", "Serial Communication Example");
+  
+        // allow for user to exit program using CTRL-C
+        //console.promptForExit();
+  
+        // create an instance of the serial communications class
+        final Serial serial = SerialFactory.createInstance();
+  
+        // create and register the serial data listener
+        serial.addListener(new SerialDataEventListener() {
+            @Override
+            public void dataReceived(SerialDataEvent event) {
+  
+                // NOTE! - It is extremely important to read the data received from the
+                // serial port.  If it does not get read from the receive buffer, the
+                // buffer will continue to grow and consume memory.
+  
+                // print out the data received to the console
+               /*
+                try {
+                    console.println("[HEX DATA]   " + event.getHexByteString());
+                    console.println("[ASCII DATA] " + event.getAsciiString());
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }*/
+            }
+        });
+  
+        try {
+            // create serial config object
+            SerialConfig config = new SerialConfig();
+           
+  
+            // set default serial settings (device, baud rate, flow control, etc)
+            //
+            // by default, use the DEFAULT com port on the Raspberry Pi (exposed on GPIO header)
+            // NOTE: this utility method will determine the default serial port for the
+            //       detected platform and board/model.  For all Raspberry Pi models
+            //       except the 3B, it will return "/dev/ttyAMA0".  For Raspberry Pi
+            //       model 3B may return "/dev/ttyS0" or "/dev/ttyAMA0" depending on
+            //       environment configuration. /dev/ttyS0
+            //      getDefaultPort(BoardType.RaspberryPi_3B)
+  
+  
+            try {
+              config.device(SerialPort.getDefaultPort(BoardType.RaspberryPi_B_Rev2))
+              .baud(Baud._38400)
+              .dataBits(DataBits._8)
+              .parity(Parity.NONE)
+              .stopBits(StopBits._1)
+              .flowControl(FlowControl.NONE);
+              
+            } /*catch (IOException ex) {
+              ex.printStackTrace();
+            }catch (InterruptedException ex) {
+              ex.printStackTrace();
+            }*/catch (UnsupportedBoardType ex) {
+              ex.printStackTrace();
+            }
+  
+  
+  
+                  config = CommandArgumentParser.getSerialConfig(config);
+            
+            /*parse optional command argument options to override the default serial settings.
+            if(args.length > 0){
+                config = CommandArgumentParser.getSerialConfig(config, args);
+            }
+            */
+  
+            
+            // display connection details
+            /*
+            console.box(" Connecting to: " + config.toString(),
+                    " We are sending ASCII data on the serial port every 1 second.",
+                    " Data received on serial port will be displayed below.");
+  
+            */
+  
+            // open the default serial device/port with the configuration settings
+            serial.open(config);
+  
+           //System.out.println("--------- Opened serial port ----------");
+  
+           // serial.write("Testing Serial Ouput");
+  
+           // continuous loop to keep the program running until the user terminates the program
+
+           uartMessage = Double.toString(pixelOffset);
+        
+                try {
+  
+                    serial.writeln(uartMessage2);
+  
+                }
+                catch(IllegalStateException ex){
+                    ex.printStackTrace();
+                }
+  
+            
+            
+  
+        }
+        catch(IOException ex) {
+            console.println(" ==>> SERIAL SETUP FAILED test: " + ex.getMessage());
+            return;
+        }
+  
+  }
+
+}//END of Bacon Pipeline
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  /**
+   * Main.
+   */
+  public static void main(String... args) throws InterruptedException, IOException, UnsupportedBoardType {
+
+
+    if (args.length > 0) {
+      configFile = args[0];
+    }
+
+    // read configuration
+    if (!readConfig()) {
+      return;
+    }
+
+    // start NetworkTables
+    NetworkTableInstance ntinst = NetworkTableInstance.getDefault();
+    if (server) {
+      System.out.println("Setting up NetworkTables server");
+      ntinst.startServer();
+    } else {
+      System.out.println("Setting up NetworkTables client for team " + team);
+      ntinst.startClientTeam(team);
+    }
+
+    // start cameras
+    List<VideoSource> cameras = new ArrayList<>();
+    for (CameraConfig cameraConfig : cameraConfigs) {
+      cameras.add(startCamera(cameraConfig));
+    }
+
+    // start image processing on camera 0 if present
+    if (cameras.size() >= 1) {
+      VisionThread visionThread = new VisionThread (cameras.get(0),
+              new MyPipeline(), pipeline -> {
+        // do something with pipeline results
+
+       MyPipeline.uartCommunication();
+       
+
+      });
+      /* something like this for GRIP:
+      VisionThread visionThread = new VisionThread(cameras.get(0),
+              new GripPipeline(), pipeline -> {
+        ...
+      });
+	  */
+	  
+    
+
+
+	  
+
+      visionThread.start();
+    }
+
+   
+
+    // loop forever
+    for (;;) {
+      try {
+        Thread.sleep(1000);
+      } catch (InterruptedException ex) {
+        return;
+      }
+    }
+  }
+}
